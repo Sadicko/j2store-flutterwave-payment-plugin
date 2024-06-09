@@ -4,7 +4,7 @@ This plugin integrates the Flutterwave payment gateway with J2Store for Joomla.
 
 ## Installation
 
-1. Download the latest release from the [Releases](https://github.com/Sadicko/j2store-paystack-payment-plugin/releases) page.
+1. Download the latest release from the [Releases](https://github.com/Sadicko/j2store-flutterwave-payment-plugin/releases) page.
 2. Go to Joomla Admin Panel -> Extensions -> Manage -> Install.
 3. Upload and install the zip file.
 4. Enable the plugin from Extensions -> Plugins.

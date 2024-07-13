@@ -3,9 +3,9 @@ defined('_JEXEC') or die('Restricted access');
 
 require_once(JPATH_ADMINISTRATOR . '/components/com_j2store/library/plugins/payment.php');
 
-class plgJ2StorePayment_paystack extends J2StorePaymentPlugin
+class plgJ2StorePayment_flutterwave extends J2StorePaymentPlugin
 {
-    var $_element = 'payment_paystack';
+    var $_element = 'payment_flutterwave';
 
     function __construct(&$subject, $config)
     {
@@ -33,10 +33,6 @@ class plgJ2StorePayment_paystack extends J2StorePaymentPlugin
         $vars->amount = $data['orderpayment_amount'];
         $vars->currency_code = isset($data['currency_code']) ? $data['currency_code'] : $this->getCurrencyCode($data['order_id']);
 
-        // Debugging log
-//        JLog::add('Currency code being sent: ' . $vars->currency_code, JLog::INFO, 'payment_paystack');
-//        JLog::add('User email: ' . $vars->user_email, JLog::INFO, 'payment_paystack');
-
         $vars->public_key = $this->params->get('public_key');
         $vars->callback_url = JRoute::_(JURI::root() . "index.php?option=com_j2store&view=checkout&task=confirmPayment&orderpayment_type=" . $this->_element . "&order_id=" . $data['order_id'], false);
 
@@ -48,17 +44,13 @@ class plgJ2StorePayment_paystack extends J2StorePaymentPlugin
         $app = JFactory::getApplication();
         $input = $app->input;
         $order_id = $input->getString('order_id');
-        $transaction_id = $input->getString('reference'); // Paystack returns 'reference'
-
-        // Debugging log
-        JLog::add('Order ID: ' . $order_id, JLog::INFO, 'payment_paystack');
-        JLog::add('Transaction ID: ' . $transaction_id, JLog::INFO, 'payment_paystack');
+        $transaction_id = $input->getString('flw_ref'); // Flutterwave returns 'flw_ref'
 
         $order = F0FTable::getAnInstance('Order', 'J2StoreTable')->getClone();
         $order->load(array('order_id' => $order_id));
 
-        $paystack_secret_key = $this->params->get('secret_key');
-        $payment_status = $this->_verifyTransaction($transaction_id, $paystack_secret_key);
+        $flutterwave_secret_key = $this->params->get('secret_key');
+        $payment_status = $this->_verifyTransaction($transaction_id, $flutterwave_secret_key);
 
         if ($payment_status == 'success') {
             $order->transaction_status = 'C';
@@ -85,7 +77,7 @@ class plgJ2StorePayment_paystack extends J2StorePaymentPlugin
 
     function _verifyTransaction($transaction_id, $secret_key)
     {
-        $url = "https://api.paystack.co/transaction/verify/" . $transaction_id;
+        $url = "https://api.flutterwave.com/v3/transactions/" . $transaction_id . "/verify";
         $headers = array(
             "Authorization: Bearer " . $secret_key,
             "Content-Type: application/json"
@@ -99,7 +91,7 @@ class plgJ2StorePayment_paystack extends J2StorePaymentPlugin
         curl_close($ch);
 
         $result = json_decode($response);
-        if ($result && $result->data && $result->data->status == 'success') {
+        if ($result && $result->status == 'success') {
             return 'success';
         }
         return 'failed';
@@ -119,3 +111,4 @@ class plgJ2StorePayment_paystack extends J2StorePaymentPlugin
         return $order->currency_code;
     }
 }
+?>

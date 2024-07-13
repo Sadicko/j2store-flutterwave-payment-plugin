@@ -1,110 +1,114 @@
 <?php
 defined('_JEXEC') or die('Restricted access');
 
-class plgJ2StorePayment_flutterwave extends JPlugin
+require_once(JPATH_ADMINISTRATOR . '/components/com_j2store/library/plugins/payment.php');
+
+class plgJ2StorePayment_flutterwave extends J2StorePaymentPlugin
 {
-    public function __construct(&$subject, $config)
+    var $_element = 'payment_flutterwave';
+
+    function __construct(&$subject, $config)
     {
         parent::__construct($subject, $config);
-        $this->loadLanguage();
+        $this->loadLanguage('', JPATH_ADMINISTRATOR);
     }
 
-    public function onJ2StoreGetPaymentOptions($order)
+    function onJ2StoreCalculateFees($order)
     {
-        $options = array();
-        $option = new JObject();
-        $option->element = 'payment_flutterwave';
-        $option->title = $this->params->get('display_name', 'Flutterwave');
-        $option->description = JText::_('PLG_J2STORE_PAYMENT_FLUTTERWAVE_DESC');
-        $options[] = $option;
-        return $options;
+        $success = false;
+        if (isset($order->j2store_payment_method) && $order->j2store_payment_method == $this->_element) {
+            $success = true;
+        }
+        return array($success, array());
     }
 
-    public function onJ2StoreProcessPayment($order)
+    function _prePayment($data)
+    {
+        $vars = new JObject();
+        $app = JFactory::getApplication();
+        $input = $app->input;
+
+        $vars->order_id = $data['order_id'];
+        $vars->user_email = isset($data['user_email']) ? $data['user_email'] : $this->getUserEmail($data['order_id']);
+        $vars->amount = $data['orderpayment_amount'];
+        $vars->currency_code = isset($data['currency_code']) ? $data['currency_code'] : $this->getCurrencyCode($data['order_id']);
+
+        $vars->public_key = $this->params->get('public_key');
+        $vars->callback_url = JRoute::_(JURI::root() . "index.php?option=com_j2store&view=checkout&task=confirmPayment&orderpayment_type=" . $this->_element . "&order_id=" . $data['order_id'], false);
+
+        return $this->_getLayout('prepayment', $vars);
+    }
+
+    function _postPayment($data)
     {
         $app = JFactory::getApplication();
         $input = $app->input;
-        $order_id = $input->getInt('order_id');
-        $order = F0FTable::getInstance('Order', 'J2StoreTable')->getClone();
-        $order->load($order_id);
+        $order_id = $input->getString('order_id');
+        $transaction_id = $input->getString('flw_ref'); // Flutterwave returns 'flw_ref'
 
-        $api_key = $this->params->get('secret_key');
-        $public_key = $this->params->get('public_key');
-        $live_mode = $this->params->get('live_mode');
-        $currency = $this->params->get('currency');
+        $order = F0FTable::getAnInstance('Order', 'J2StoreTable')->getClone();
+        $order->load(array('order_id' => $order_id));
 
-        $amount = $order->order_total;
-        $tx_ref = 'TXREF-' . uniqid();
+        $flutterwave_secret_key = $this->params->get('secret_key');
+        $payment_status = $this->_verifyTransaction($transaction_id, $flutterwave_secret_key);
 
-        $callback_url = JRoute::_(JUri::root() . 'index.php?option=com_j2store&view=checkout&task=confirmPayment&orderpayment_type=payment_flutterwave&order_id=' . $order_id, false);
+        if ($payment_status == 'success') {
+            $order->transaction_status = 'C';
+            $order->order_state = 'C';
+            $order->transaction_id = $transaction_id;
+            $order->store();
 
-        $payload = array(
-            'tx_ref' => $tx_ref,
-            'amount' => $amount,
-            'currency' => $currency,
-            'redirect_url' => $callback_url,
-            'payment_options' => 'card,banktransfer',
-            'customer' => array(
-                'email' => $order->user_email,
-                'name' => $order->billing_first_name . ' ' . $order->billing_last_name
-            ),
-            'customizations' => array(
-                'title' => $app->get('sitename'),
-                'description' => 'Order Payment'
-            )
+            // Update order status
+            $orderpayment = F0FTable::getAnInstance('Orderpayment', 'J2StoreTable')->getClone();
+            $orderpayment->load(array('order_id' => $order_id));
+            $orderpayment->order_state = 'payment_received';
+            $orderpayment->payment_status = 'C';
+            $orderpayment->transaction_id = $transaction_id;
+            $orderpayment->save();
+        } else {
+            $order->transaction_status = 'F';
+            $order->order_state = 'F';
+            $order->transaction_id = $transaction_id;
+            $order->store();
+        }
+
+        $app->redirect(JRoute::_('index.php?option=com_j2store&view=checkout', false));
+    }
+
+    function _verifyTransaction($transaction_id, $secret_key)
+    {
+        $url = "https://api.flutterwave.com/v3/transactions/" . $transaction_id . "/verify";
+        $headers = array(
+            "Authorization: Bearer " . $secret_key,
+            "Content-Type: application/json"
         );
 
-        $url = $live_mode ? 'https://api.flutterwave.com/v3/payments' : 'https://ravesandboxapi.flutterwave.com/v3/payments';
-
-        $ch = curl_init($url);
-
-        curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-            'Authorization: Bearer ' . $api_key,
-            'Content-Type: application/json'
-        ));
-
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         $response = curl_exec($ch);
-
-        if (curl_errno($ch)) {
-            $error_msg = curl_error($ch);
-            $app->enqueueMessage($error_msg, 'error');
-            return false;
-        }
-
         curl_close($ch);
 
-        $result = json_decode($response, true);
-
-        if ($result['status'] == 'success') {
-            $link = $result['data']['link'];
-            $app->redirect($link);
-        } else {
-            $app->enqueueMessage($result['message'], 'error');
-            return false;
+        $result = json_decode($response);
+        if ($result && $result->status == 'success') {
+            return 'success';
         }
+        return 'failed';
     }
 
-    public function onJ2StoreConfirmPayment($order_id)
+    protected function getUserEmail($order_id)
     {
-        $app = JFactory::getApplication();
-        $input = $app->input;
-        $tx_ref = $input->getString('tx_ref');
-        $status = $input->getString('status');
+        $order = F0FTable::getAnInstance('Order', 'J2StoreTable')->getClone();
+        $order->load(array('order_id' => $order_id));
+        return $order->user_email;
+    }
 
-        if ($status == 'successful') {
-            $order = F0FTable::getInstance('Order', 'J2StoreTable')->getClone();
-            $order->load($order_id);
-            $order->payment_complete();
-            $order->order_state_id = J2Store::config()->get('order_state_paid', 4);
-            $order->save();
-            $app->enqueueMessage(JText::_('PLG_J2STORE_PAYMENT_FLUTTERWAVE_SUCCESS'), 'message');
-        } else {
-            $app->enqueueMessage(JText::_('PLG_J2STORE_PAYMENT_FLUTTERWAVE_FAILED'), 'error');
-        }
-
-        $app->redirect(JRoute::_(JUri::root() . 'index.php?option=com_j2store&view=checkout', false));
+    protected function getCurrencyCode($order_id)
+    {
+        $order = F0FTable::getAnInstance('Order', 'J2StoreTable')->getClone();
+        $order->load(array('order_id' => $order_id));
+        return $order->currency_code;
     }
 }
+?>

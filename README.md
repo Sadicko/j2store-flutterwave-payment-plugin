@@ -10,7 +10,7 @@ This plugin integrates the Flutterwave payment gateway with J2Store for Joomla.
 4. Enable the plugin from Extensions -> Plugins.
 5. Configure your Flutterwave API keys and settings.
 
-## Configuration
+## Configurations
 
 - **Public Key**: Your Flutterwave public key.
 - **Secret Key**: Your Flutterwave secret key.

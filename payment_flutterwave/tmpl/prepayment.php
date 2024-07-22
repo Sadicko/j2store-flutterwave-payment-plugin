@@ -1,8 +1,13 @@
 <?php
 defined('_JEXEC') or die('Restricted access');
 ?>
-<form id="flutterwave-form" action="<?php echo $vars->callback_url; ?>" method="post">
+<!DOCTYPE html>
+<html>
+<head>
     <script src="https://checkout.flutterwave.com/v3.js"></script>
+</head>
+<body>
+<form id="flutterwave-form" action="<?php echo $vars->callback_url; ?>" method="post">
     <input type="hidden" name="order_id" value="<?php echo $vars->order_id; ?>" />
     <input type="hidden" name="amount" value="<?php echo $vars->amount; ?>" />
     <input type="hidden" name="email" value="<?php echo $vars->user_email; ?>" />
@@ -27,8 +32,10 @@ defined('_JEXEC') or die('Restricted access');
                 }
             },
             onclose: function() {
-                // close modal
+                // alert('Payment window closed.');
             },
         });
     }
 </script>
+</body>
+</html>
